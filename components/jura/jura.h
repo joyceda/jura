@@ -1,3 +1,11 @@
+/*
+ * Jura ESPHome external component
+ * ESP-IDF portability patch: v0.1.3
+ * Date: 2026-10-11 (America/Los_Angeles)
+ *
+ * Replaces Arduino-only byte/bitRead/bitWrite constructs with fixed-width,
+ * portable C++ helpers. The Jura two-bit UART encoding is unchanged.
+ */
 #pragma once
 
 #include "esphome/core/component.h"
@@ -9,6 +17,20 @@
 
 namespace esphome {
 namespace jura {
+
+// Portable equivalents of Arduino bitRead()/bitWrite().
+static constexpr uint8_t read_bit_(uint8_t value, uint8_t position) {
+  return static_cast<uint8_t>((value >> position) & 0x01U);
+}
+
+static inline void write_bit_(uint8_t &value, uint8_t position, uint8_t state) {
+  const uint8_t mask = static_cast<uint8_t>(1U << position);
+  if ((state & 0x01U) != 0U) {
+    value = static_cast<uint8_t>(value | mask);
+  } else {
+    value = static_cast<uint8_t>(value & static_cast<uint8_t>(~mask));
+  }
+}
 
 class Jura : public PollingComponent, public uart::UARTDevice {
  public:
@@ -36,8 +58,8 @@ class Jura : public PollingComponent, public uart::UARTDevice {
       uint8_t src = static_cast<uint8_t>(outbytes[i]);
       for (int s = 0; s < 8; s += 2) {
         uint8_t rawbyte = 0xFF;
-        bitWrite(rawbyte, 2, bitRead(src, s + 0));
-        bitWrite(rawbyte, 5, bitRead(src, s + 1));
+        write_bit_(rawbyte, 2, read_bit_(src, s + 0));
+        write_bit_(rawbyte, 5, read_bit_(src, s + 1));
         write(rawbyte);
       }
       delay(8);
@@ -48,8 +70,8 @@ class Jura : public PollingComponent, public uart::UARTDevice {
     while (!(inbytes.size() >= 2 && inbytes[inbytes.size()-2] == '\r' && inbytes[inbytes.size()-1] == '\n')) {
       if (available()) {
         uint8_t rawbyte = static_cast<uint8_t>(read());
-        bitWrite(inbyte, s + 0, bitRead(rawbyte, 2));
-        bitWrite(inbyte, s + 1, bitRead(rawbyte, 5));
+        write_bit_(inbyte, s + 0, read_bit_(rawbyte, 2));
+        write_bit_(inbyte, s + 1, read_bit_(rawbyte, 5));
         if ((s += 2) >= 8) {
           s = 0;
           inbytes.push_back(static_cast<char>(inbyte));
@@ -97,15 +119,15 @@ class Jura : public PollingComponent, public uart::UARTDevice {
     // ---- flags ----
     std::string ic = cmd2jura("IC:");
     if (ic.size() >= 7) {
-      byte a = static_cast<byte>(strtol(ic.substr(3,2).c_str(), NULL, 16));
-      byte b = static_cast<byte>(strtol(ic.substr(5,2).c_str(), NULL, 16));
+      uint8_t a = static_cast<uint8_t>(strtol(ic.substr(3,2).c_str(), NULL, 16));
+      uint8_t b = static_cast<uint8_t>(strtol(ic.substr(5,2).c_str(), NULL, 16));
 
       publish_ic_bits_if_changed_(a, b);     
 
-      byte trayBit       = bitRead(a, 4);
-      byte left_readyBit = bitRead(a, 2);
-      byte tankBit       = bitRead(b, 5);
-      byte right_busyBit = bitRead(b, 6);
+      uint8_t trayBit       = read_bit_(a, 4);
+      uint8_t left_readyBit = read_bit_(a, 2);
+      uint8_t tankBit       = read_bit_(b, 5);
+      uint8_t right_busyBit = read_bit_(b, 6);
 
       std::string tray_status = (trayBit == 1) ? "Present" : "Missing";
       std::string tank_status = (tankBit == 1) ? "Fill Tank" : "OK";
@@ -160,7 +182,7 @@ class Jura : public PollingComponent, public uart::UARTDevice {
       if (prev != now) {
         if (any) msg += ", ";
         // "counter_%zu %ld→%ld"
-        snprintf(buf, sizeof(buf), "counter_%u %ld\u2192%ld", (unsigned)(i + 1), prev, now);
+        snprintf(buf, sizeof(buf), "counter_%u %ld→%ld", (unsigned)(i + 1), prev, now);
         msg += buf;
         any = true;
       }
