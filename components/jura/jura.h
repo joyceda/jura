@@ -1,6 +1,6 @@
 /*
  * Jura ESPHome external component
- * ESP-IDF portability patch: v0.1.3
+ * ESP-IDF portability and watchdog-safety patch: v0.1.4
  * Date: 2026-10-11 (America/Los_Angeles)
  *
  * Replaces Arduino-only byte/bitRead/bitWrite constructs with fixed-width,
@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include "esphome/core/application.h"
 #include "esphome/core/component.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/sensor/sensor.h"
@@ -80,6 +81,10 @@ class Jura : public PollingComponent, public uart::UARTDevice {
       } else {
         delay(10);
       }
+      // A missing or disconnected Jura can keep this synchronous transaction
+      // open for about five seconds. Feed ESPHome's loop-task watchdog while
+      // preserving the existing protocol timeout and response behavior.
+      App.feed_wdt();
       if (w++ > 500) return "";
     }
     return inbytes.substr(0, inbytes.size() - 2);
